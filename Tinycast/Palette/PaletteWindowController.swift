@@ -10,6 +10,8 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
     /// Our key window at summon time, so hiding hands focus back to Settings, not a stale app.
     private weak var previousOwnWindow: NSWindow?
     private var popToRootTimer: Timer?
+    /// Stamps each show/hide, so a deferred order-out can't land on a panel shown since.
+    private var hideGeneration = 0
     /// The session anchor — the panel's top-left, resolved once per show, the top edge being the
     /// one that must not drift. See docs/features/palette.md#window-placement.
     private var anchor: CGPoint?
@@ -34,6 +36,7 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         Signposts.interval("PaletteWindowController.show") {
+            hideGeneration &+= 1
             // Summoned over one of our own windows: there is no external paste or focus target.
             let frontmost = NSWorkspace.shared.frontmostApplication
             if frontmost?.processIdentifier == NSRunningApplication.current.processIdentifier {
@@ -69,8 +72,14 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
     }
 
     func hide(restoreFocus: Bool) {
-        panel?.orderOut(nil)
-        core.inputSourceSwitcher.endSession()
+        hideGeneration &+= 1
+        let generation = hideGeneration
+        // Deferred out of the key event's IME callout: closing the context inside it stalls seconds.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.hideGeneration == generation else { return }
+            self.panel?.orderOut(nil)
+            self.core.inputSourceSwitcher.endSession()
+        }
         // Drop the anchor, so the next summon re-resolves for the screen in use then.
         anchor = nil
         // The guides must never outlive the panel they point at.
