@@ -4,7 +4,20 @@ enum AppLauncher {
 
     @MainActor
     static func launch(_ url: URL) {
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        open(url)
+    }
+
+    /// Re-activates on landing: over a fullscreen Space the open can silently lose activation.
+    @MainActor
+    private static func open(_ url: URL) {
+        Task {
+            guard
+                let app = try? await NSWorkspace.shared.openApplication(
+                    at: url, configuration: NSWorkspace.OpenConfiguration()),
+                !app.isActive
+            else { return }
+            app.activate()
+        }
     }
 
     @MainActor
@@ -48,8 +61,7 @@ enum AppLauncher {
             ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
         {
             // Dock-click semantics; a bare `activate()` does none of it reliably.
-            NSWorkspace.shared.openApplication(
-                at: url, configuration: NSWorkspace.OpenConfiguration())
+            open(url)
         } else if let running {
             // Running app whose bundle URL can't be resolved (moved or deleted since launch).
             running.unhide()
